@@ -1,0 +1,22 @@
+name: 问题反馈
+description: 描述如何复现录制、编辑或导出问题
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 软件版本与 Windows 版本
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 操作步骤、预期结果与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: audio
+    attributes:
+      label: 如为声音问题，请说明设备名称、声音指示及录制/编辑/导出哪个阶段异常
+  - type: markdown
+    attributes:
+      value: 请勿附上私人录屏、完整用户目录、密钥或签名证书。日志先脱敏。

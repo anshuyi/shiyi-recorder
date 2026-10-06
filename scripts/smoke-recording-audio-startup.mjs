@@ -1,0 +1,13 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {createRequire} from 'node:module';
+import {spawn} from 'node:child_process';
+import {build} from 'esbuild';
+const require=createRequire(import.meta.url),root=path.resolve(import.meta.dirname,'..'),out=path.join(root,'.tmp/audio-startup-regression');
+await fs.mkdir(out,{recursive:true});
+await build({entryPoints:[path.join(root,'scripts/smoke-recording-audio-startup.browser.tsx')],bundle:true,platform:'browser',format:'iife',outfile:path.join(out,'harness.js'),alias:{'@':path.join(root,'src')},plugins:[]});
+await fs.writeFile(path.join(out,'index.html'),'<html><body><script src="harness.js"></script></body></html>');
+await fs.writeFile(path.join(out,'main.cjs'),`const {app,BrowserWindow}=require('electron');const fs=require('node:fs');app.setPath('userData',${JSON.stringify(path.join(out,'profile'))});for(const flag of ['use-fake-device-for-media-stream','use-fake-ui-for-media-stream','mute-audio'])app.commandLine.appendSwitch(flag);app.whenReady().then(async()=>{const w=new BrowserWindow({show:false,webPreferences:{sandbox:true,backgroundThrottling:false}});w.webContents.on("console-message",(_e,_l,m)=>console.log(m));try{await w.loadFile(${JSON.stringify(path.join(out,'index.html'))});const result=await w.webContents.executeJavaScript('window.smokePromise');fs.writeFileSync(${JSON.stringify(path.join(out,'result.json'))},JSON.stringify(result,null,2));console.log('AUDIO_STARTUP_HOOK_PASS '+result.checks.length);app.exit(0);}catch(e){console.error(e.stack);app.exit(1)}});setTimeout(()=>app.exit(2),30000);`);
+const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
+const child=spawn(require('electron'),[path.join(out,'main.cjs')],{env,windowsHide:true,stdio:'inherit'});
+process.exitCode=await new Promise((r,j)=>{child.on('exit',code=>r(code??1));child.on('error',j)});

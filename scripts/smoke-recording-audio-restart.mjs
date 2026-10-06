@@ -1,0 +1,57 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
+import { build } from 'esbuild';
+const require = createRequire(import.meta.url), root = path.resolve(import.meta.dirname, '..');
+const out = path.join(root, '.tmp', `audio-restart-${Date.now()}`);
+await fs.mkdir(out, { recursive: true });
+const bundle = path.join(out, 'library.js');
+await build({ stdin: { contents: 'export * from "./src/lib/microphoneSelection"; export * from "./src/lib/recordingAudioReadiness";', resolveDir: root }, bundle: true, platform: 'browser', format: 'iife', globalName: 'audioTest', outfile: bundle });
+const capture = async (saved) => {
+  const initial = await navigator.mediaDevices.getUserMedia({ audio: true });
+  initial.getTracks().forEach(t => t.stop());
+  const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+  const selected = saved ?? devices.find(d => !['default', 'communications'].includes(d.deviceId));
+  const resolved = audioTest.resolveMicrophoneSelection(devices, selected);
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: resolved.deviceId } } });
+  const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' }), chunks = [];
+  recorder.addEventListener('dataavailable', e => { if (e.data.size) chunks.push(e.data); });
+  await audioTest.startRecorderWithAudio(recorder, stream);
+  const dispose = audioTest.monitorRecordingAudio(recorder, stream, reason => { throw Error(reason); });
+  await new Promise(r => setTimeout(r, 800));
+  dispose();
+  await new Promise(r => { recorder.addEventListener('stop', r, { once: true }); recorder.stop(); });
+  stream.getTracks().forEach(t => t.stop());
+  const bytes = await new Blob(chunks, { type: recorder.mimeType }).arrayBuffer();
+  const context = new AudioContext();
+  const decoded = await context.decodeAudioData(bytes.slice(0));
+  const pcm = decoded.getChannelData(0); let peak = 0;
+  for (const value of pcm) peak = Math.max(peak, Math.abs(value));
+  await context.close();
+  if (peak < .001) throw Error('Synthetic microphone produced no decodable signal');
+  return { selection: resolved, bytes: Array.from(new Uint8Array(bytes)), peak, duration: decoded.duration };
+};
+const runner = `const {app,BrowserWindow,session}=require('electron');const fs=require('node:fs'),path=require('node:path'),http=require('node:http');
+app.setPath('userData',${JSON.stringify(path.join(out, 'profile'))});
+for(const flag of ['use-fake-device-for-media-stream','use-fake-ui-for-media-stream','mute-audio'])app.commandLine.appendSwitch(flag);
+const servers=[];app.whenReady().then(async()=>{try{
+session.defaultSession.setPermissionRequestHandler((_w,_p,cb)=>cb(true));
+const w=new BrowserWindow({show:false,webPreferences:{sandbox:true,backgroundThrottling:false}});
+let previous=null;const results=[];
+for(let i=0;i<2;i++){
+ const server=http.createServer((_q,res)=>{res.writeHead(200,{'Content-Type':'text/html'});res.end('<html><body>Audio restart regression</body></html>');});servers.push(server);
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));await w.loadURL('http://127.0.0.1:'+server.address().port);
+ await w.webContents.executeJavaScript(fs.readFileSync(${JSON.stringify(bundle)},'utf8'));
+ const result=await w.webContents.executeJavaScript('('+${JSON.stringify(capture.toString())}+')('+JSON.stringify(previous)+')');
+ fs.writeFileSync(path.join(${JSON.stringify(out)},'capture-'+i+'.webm'),Buffer.from(result.bytes));delete result.bytes;
+ if(previous&&previous.deviceId===result.selection.deviceId)throw Error('Different-origin device IDs did not change');
+ previous=result.selection;results.push(result);
+}
+fs.writeFileSync(path.join(${JSON.stringify(out)},'results.json'),JSON.stringify({fakeDevices:true,checks:results},null,2));console.log('AUDIO_RESTART_PASS: two origins, same selected microphone, two decoded nonzero recordings');app.exit(0);
+}catch(e){console.error(e);app.exit(1)}finally{servers.forEach(s=>s.close())}});setTimeout(()=>app.exit(2),45000);`;
+await fs.writeFile(path.join(out, 'main.cjs'), runner);
+const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+const child = spawn(require('electron'), [path.join(out, 'main.cjs'), '--mute-audio'], { env, windowsHide: true, stdio: 'inherit' });
+process.exitCode = await new Promise((resolve, reject) => { child.on('exit', code => resolve(code ?? 1)); child.on('error', reject); });
+console.log(`Evidence: ${path.relative(root, out)}`);

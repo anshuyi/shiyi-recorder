@@ -1,0 +1,15 @@
+{
+  "name": "shiyi-recorder",
+  "displayName": "十一录屏",
+  "englishName": "Shiyi Recorder",
+  "appId": "io.shiyi.recorder",
+  "repository": "https://github.com/anshuyi/shiyi-recorder",
+  "autoUpdates": false,
+  "upstream": "https://github.com/webadderallorg/Recordly",
+  "releaseReview": {
+    "assetsApproved": false,
+    "microphoneHardwarePassed": false,
+    "cleanInstallPassed": false,
+    "historyReviewed": false
+  }
+}

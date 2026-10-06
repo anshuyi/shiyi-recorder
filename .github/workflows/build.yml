@@ -1,0 +1,26 @@
+name: Windows preview installer
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node node_modules/electron/install.js
+      - run: node node_modules/ffmpeg-static/install.js
+      - run: npx electron-builder install-app-deps
+      - run: npm run build:public:win -- --preview
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shiyi-recorder-windows-preview
+          path: |
+            release/*.exe
+            release/SHA256SUMS-windows.txt
+          if-no-files-found: error

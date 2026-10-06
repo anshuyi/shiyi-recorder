@@ -1,0 +1,93 @@
+// @see - https://www.electron.build/configuration/configuration
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "io.shiyi.recorder",
+  "electronUpdaterCompatibility": ">=2.16",
+  "asar": true,
+  "asarUnpack": [
+    "node_modules/ffmpeg-static/**",
+    "node_modules/ffprobe-static/**",
+    "node_modules/uiohook-napi/**",
+    "electron/native/**"
+  ],
+  "productName": "十一录屏",
+  "npmRebuild": true,
+  "buildDependenciesFromSource": true,
+  "compression": "normal",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist",
+    "!dist/mediapipe/**",
+    "dist-electron",
+    "electron/native",
+    "!node_modules/@mediapipe/tasks-vision/**",
+    "!node_modules/ffprobe-static/bin/darwin/**",
+    "!node_modules/ffprobe-static/bin/linux/**",
+    "!node_modules/ffprobe-static/bin/win32/ia32/**",
+    "!electron/native/**/build/**",
+    "!*.png",
+    "!preview*.png",
+    "!*.md",
+    "!README.md",
+    "!CONTRIBUTING.md",
+    "!LICENSE"
+  ],
+  "extraResources": [
+    { "from": "LICENSE.md", "to": "licenses/LICENSE.md" },
+    { "from": "THIRD_PARTY_NOTICES.md", "to": "licenses/THIRD_PARTY_NOTICES.md" },
+    {
+      "from": "public/wallpapers",
+      "to": "assets/wallpapers"
+    },
+    {
+      "from": "public/mediapipe",
+      "to": "assets/mediapipe"
+    }
+  ],
+  "publish": null,
+
+  "mac": {
+    "hardenedRuntime": true,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "icon": "icons/icons/mac/icon.icns",
+    "artifactName": "${productName}-${arch}.${ext}",
+    "extendInfo": {
+      "NSAudioCaptureUsageDescription": "Shiyi Recorder needs audio capture permission to record system audio.",
+      "NSCameraUsageDescription": "Shiyi Recorder needs camera access to record webcam video.",
+      "NSMicrophoneUsageDescription": "Shiyi Recorder needs microphone access to record voice audio.",
+      "NSCameraUseContinuityCameraDeviceType": true,
+      "com.apple.security.device.audio-input": true
+    }
+  },
+  "linux": {
+    "target": [
+      "AppImage"
+    ],
+    "icon": "icons/icons/png",
+    "artifactName": "${productName}-linux-x64.${ext}",
+    "category": "AudioVideo"
+  },
+  "win": {
+    "target": [
+      "nsis"
+    ],
+    "icon": "branding/shiyi.ico"
+    ,
+    "executableName": "十一录屏",
+    "artifactName": "${productName}-windows-${arch}.${ext}"
+  }
+}
+
