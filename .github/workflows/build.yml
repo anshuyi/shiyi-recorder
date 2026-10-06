@@ -1,4 +1,4 @@
-name: Windows preview installer
+name: Windows installer build
 on:
   workflow_dispatch:
 permissions:
@@ -14,9 +14,29 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: node node_modules/electron/install.js
-      - run: node node_modules/ffmpeg-static/install.js
-      - run: npx electron-builder install-app-deps
       - run: npm run build:public:win -- --preview
+      - run: node --test scripts/lib/public-windows-profile.test.mjs
+      - name: Install and test without a development checkout runtime
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem release/*-Setup.exe | Select-Object -First 1
+          $testInstallPath = Join-Path $env:RUNNER_TEMP 'shiyi-install-test'
+          $installProcess = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$testInstallPath") -WindowStyle Hidden -PassThru -Wait
+          if ($installProcess.ExitCode -ne 0) { throw "Installer failed: $($installProcess.ExitCode)" }
+          $testExe = Join-Path $testInstallPath '十一录屏.exe'
+          if (!(Test-Path -LiteralPath $testExe)) { throw 'Installed app is missing' }
+          node scripts/smoke-audio-preview-installed.mjs --installed "--exe=$testExe"
+          if ($LASTEXITCODE -ne 0) { throw 'Installed playback and export smoke failed' }
+          $savedProjects = @(Get-ChildItem .tmp/audio-preview-installed -Recurse -Filter audio.recordly)
+          if ($savedProjects.Count -eq 0) { throw 'Saved test project is missing' }
+          $savedHashes = @{}
+          foreach ($project in $savedProjects) { $savedHashes[$project.FullName] = (Get-FileHash -LiteralPath $project.FullName -Algorithm SHA256).Hash }
+          $uninstaller = Join-Path $testInstallPath 'Uninstall 十一录屏.exe'
+          $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList '/S' -WindowStyle Hidden -PassThru -Wait
+          if ($uninstallProcess.ExitCode -ne 0) { throw 'Uninstaller failed' }
+          foreach ($project in $savedProjects) {
+            if (!(Test-Path -LiteralPath $project.FullName) -or (Get-FileHash -LiteralPath $project.FullName -Algorithm SHA256).Hash -ne $savedHashes[$project.FullName]) { throw 'Uninstall modified a saved test project' }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: shiyi-recorder-windows-preview

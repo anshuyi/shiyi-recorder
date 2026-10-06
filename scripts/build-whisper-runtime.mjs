@@ -3,6 +3,7 @@ import { createWriteStream, existsSync } from "node:fs";
 import { chmod, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { get as httpsGet } from "node:https";
 import path from "node:path";
+import { patchWindowsGgml, sanitizeWhisperSourcePath } from './lib/public-windows-profile.mjs';
 
 const projectRoot = process.cwd();
 const whisperVersion = "v1.8.4";
@@ -99,7 +100,7 @@ function getTargetConfigs() {
 				platform: "win32",
 				arch,
 				archTag,
-				buildRoot: path.join(cacheRoot, `build-${archTag}`),
+				buildRoot: path.join(cacheRoot, `build-${archTag}-portable`),
 				outputDir: path.join(nativeRoot, "bin", archTag),
 				configureArgs: [
 					"-G",
@@ -265,6 +266,7 @@ async function shouldSkipBuild(target) {
 		return (
 			manifest.version === whisperVersion &&
 			manifest.arch === target.arch &&
+			(target.platform !== 'win32' || target.arch !== 'x64' || manifest.cpuProfile === 'x64-baseline-static-relative-paths') &&
 			existsSync(binaryPath)
 		);
 	} catch {
@@ -281,6 +283,14 @@ function getConfigureArgs(sourceDir, target) {
 		"-DWHISPER_BUILD_TESTS=OFF",
 		"-DWHISPER_BUILD_SERVER=OFF",
 		"-DBUILD_SHARED_LIBS=OFF",
+		// Windows public binaries must not require the build computer's CPU.
+		...(target.platform === 'win32' && target.arch === 'x64' ? [
+			'-DGGML_NATIVE=OFF', '-DGGML_AVX=OFF', '-DGGML_AVX2=OFF',
+			'-DGGML_FMA=OFF', '-DGGML_F16C=OFF',
+			'-DGGML_SSE42=OFF', '-DGGML_BMI2=OFF', '-DGGML_AVX512=OFF',
+			'-DCMAKE_POLICY_DEFAULT_CMP0091=NEW',
+			'-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded', '-DGGML_OPENMP=OFF',
+		] : []),
 		...target.configureArgs,
 	];
 
@@ -288,7 +298,7 @@ function getConfigureArgs(sourceDir, target) {
 }
 
 function getBuildArgs(target) {
-	const args = ["--build", target.buildRoot, "--config", "Release"];
+	const args = ["--build", target.buildRoot, "--config", "Release", "--target", "whisper-cli"];
 
 	if (target.platform !== "win32") {
 		args.push("--parallel");
@@ -352,6 +362,8 @@ async function stageRuntimeArtifacts(target, candidateDir, runtimeEntries) {
 				platform: target.platform,
 				arch: target.arch,
 				binary: target.platform === "win32" ? "whisper-cli.exe" : "whisper-cli",
+				portableCpu: target.platform === 'win32' && target.arch === 'x64',
+				cpuProfile: target.platform === 'win32' && target.arch === 'x64' ? 'x64-baseline-static-relative-paths' : null,
 			},
 			null,
 			2,
@@ -406,6 +418,22 @@ async function main() {
 	}
 
 	const sourceDir = await ensureSourceTree();
+	if (process.platform === 'win32' && process.arch === 'x64') {
+		const ggmlCmake = path.join(sourceDir, 'ggml/CMakeLists.txt');
+		await writeFile(ggmlCmake, patchWindowsGgml(await readFile(ggmlCmake, 'utf8')), 'utf8');
+		async function sanitizeDirectory(directory) {
+			for (const entry of await readdir(directory, { withFileTypes: true })) {
+				const file = path.join(directory, entry.name);
+				if (entry.isDirectory()) await sanitizeDirectory(file);
+				else if (entry.isFile() && /\.(?:c|cc|cpp|cxx|h|hpp)$/.test(entry.name)) {
+					const original = await readFile(file, 'utf8');
+					const patched = sanitizeWhisperSourcePath(original, path.relative(sourceDir, file).split(path.sep).join('/'));
+					if (patched !== original) await writeFile(file, patched, 'utf8');
+				}
+			}
+		}
+		await sanitizeDirectory(sourceDir);
+	}
 
 	console.log(
 		`[build-whisper-runtime] Target architectures for ${process.platform}: ${targets.map((target) => target.archTag).join(", ")}`,
@@ -420,41 +448,21 @@ async function main() {
 		}
 
 		await mkdir(target.buildRoot, { recursive: true });
+		// A failed generator/assembler probe can leave an unusable CMake cache.
+		// Remove only generated cache entries inside this script's own cache root.
+		const cacheRelative = path.relative(cacheRoot, target.buildRoot);
+		if (!cacheRelative || cacheRelative.startsWith('..') || path.isAbsolute(cacheRelative)) {
+			throw new Error('Whisper build cache must remain inside its generated cache directory');
+		}
+		await rm(path.join(target.buildRoot, 'CMakeCache.txt'), { force: true });
+		await rm(path.join(target.buildRoot, 'CMakeFiles'), { recursive: true, force: true });
 
 		console.log(
 			`[build-whisper-runtime] Configuring whisper.cpp ${whisperVersion} for ${target.archTag}...`,
 		);
-		try {
-			execFileSync(cmake, getConfigureArgs(sourceDir, target), {
-				stdio: "inherit",
-				timeout: 300000,
-			});
-		} catch (error) {
-			if (target.platform === "win32" && target.arch !== "arm64") {
-				console.log(
-					"[build-whisper-runtime] VS 2022 generator unavailable, retrying with VS 2019...",
-				);
-				execFileSync(
-					cmake,
-					[
-						"-S",
-						sourceDir,
-						"-B",
-						target.buildRoot,
-						"-G",
-						"Visual Studio 16 2019",
-						"-A",
-						"x64",
-						"-DWHISPER_BUILD_TESTS=OFF",
-						"-DWHISPER_BUILD_SERVER=OFF",
-						"-DBUILD_SHARED_LIBS=OFF",
-					],
-					{ stdio: "inherit", timeout: 300000 },
-				);
-			} else {
-				throw error;
-			}
-		}
+		execFileSync(cmake, getConfigureArgs(sourceDir, target), {
+			stdio: 'inherit', timeout: 300000, windowsHide: true,
+		});
 
 		console.log(
 			`[build-whisper-runtime] Building bundled whisper runtime for ${target.archTag}...`,

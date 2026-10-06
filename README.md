@@ -2,7 +2,21 @@
 
 面向内容创作者的本地录屏与编辑工具，基于 [Recordly](https://github.com/webadderallorg/Recordly) 修改，保留原作者 webadderall 和 OpenScreen 作者 Siddharth Vaddem 的署名。
 
-当前公开 **0.1.0-beta.1 测试版源码**：[anshuyi/shiyi-recorder](https://github.com/anshuyi/shiyi-recorder)。可以下载源码或克隆仓库，暂未提供公开安装包。Windows x64 优先；macOS/Linux 尚未验证。
+**[下载安装 · Windows 64 位](https://github.com/anshuyi/shiyi-recorder/releases/tag/v0.1.0-beta.1)**
+
+当前版本：**0.1.0-beta.1 测试版**。Windows 10/11 x64；macOS/Linux 暂不提供安装包。
+
+## 下载与安装
+
+1. 打开上面的下载页面，在 **Assets（附件）** 中选择 `Shiyi-Recorder-0.1.0-beta.1-windows-x64-Setup.exe`。
+2. 下载后双击安装，选择安装位置，再从桌面或开始菜单打开“十一录屏”。**不需要安装 Node.js、Git 或其他编程工具。**
+3. 首次使用先在麦克风菜单选择你要用的设备，短录一段并检查回放，再开始正式录制。
+
+[直接下载安装包](https://github.com/anshuyi/shiyi-recorder/releases/download/v0.1.0-beta.1/Shiyi-Recorder-0.1.0-beta.1-windows-x64-Setup.exe) · [校验文件 SHA256SUMS](https://github.com/anshuyi/shiyi-recorder/releases/download/v0.1.0-beta.1/SHA256SUMS-windows.txt)
+
+安装包未进行代码签名，Windows 可能显示“未知发布者”；请核对下载来源及校验文件。`Source code (zip)` 和仓库 **Code → Download ZIP** 是源码，不是安装程序。
+
+首发包保留纸纹背景、录屏、人像编辑和普通视频导出，不包含专用 NVIDIA CUDA 合成模块；自动更新暂时关闭。旧 Recordly 的视频与项目不会自动迁移，需要从新版打开原项目文件。
 
 ## 已有能力
 
@@ -12,9 +26,9 @@
 - 麦克风伴随音频完整保存后才加载；保存完成及明确重试会刷新同路径声音，避免播放器沿用半成品的错误时长。
 - 麦克风开启但启动失败时取消录制启动；不会自动降级为无声录制。重启后按当前设备重新确认选择，无法唯一匹配时要求重选。
 
-自动测试已通过 956 项；合成音频回放与导出检查通过，包含 8 分钟连续回放。这不替代真实麦克风、摄像头和干净环境的发行验收。
+自动测试已通过 956 项；本机真实麦克风阵列连续录制约 481 秒未检测到中断；公开安装版通过回放、完整音轨保存和导出末段声音检查。摄像头、其他麦克风及不同电脑的兼容性尚未全面实测。
 
-这些能力需按 [发行验收表](docs/release-readiness.md) 区分自动化检查与实际设备验收；预览版不能视为已经可靠发行。
+具体测试范围和已知限制见 [发行验收表](docs/release-readiness.md)；当前为测试版，建议先确认自己设备上的短录制和导出效果。
 
 ## 下载源码
 
@@ -39,7 +53,7 @@ npx electron-builder install-app-deps
 npm run dev
 ```
 
-本地预览安装包：`npm run build:public:win -- --preview`。脚本会准备 MediaPipe、编译原生辅助程序、检查类型、构建界面与 Electron、校验 CJS 入口、生成 Windows NSIS 安装包和 SHA256 清单。预览构建不上传。
+本地预览安装包：`npm run build:public:win -- --preview`。脚本会准备校验过的 FFmpeg/FFprobe 和 MediaPipe、编译原生辅助程序、检查类型、构建界面与 Electron、校验 CJS 入口、检查公开资源与本机路径、生成 Windows NSIS 安装包和 SHA256 清单。预览构建不上传。
 
 正式候选包：`npm run build:public:win`，需要仓库、素材及实机验收记录齐全。输出在 `release/`。自动更新暂时关闭，避免跳转到原项目。
 
@@ -53,4 +67,4 @@ npm run dev
 
 ## 来源与许可
 
-遵循保留的 [LICENSE.md](LICENSE.md)，其中包含 AGPLv3、原项目品牌与署名要求、OpenScreen 的 MIT 声明。第三方组件和待核实素材见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。原项目介绍另存于 [上游 README](docs/UPSTREAM_README.md)，不代表本衍生版已支持或验证相同的发行渠道。
+遵循保留的 [LICENSE.md](LICENSE.md)，其中包含 AGPLv3、原项目品牌与署名要求、OpenScreen 的 MIT 声明。实际分发组件与素材说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。原项目介绍另存于 [上游 README](docs/UPSTREAM_README.md)，不代表本衍生版已支持或验证相同的发行渠道。

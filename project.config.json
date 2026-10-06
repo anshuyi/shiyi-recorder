@@ -7,9 +7,9 @@
   "autoUpdates": false,
   "upstream": "https://github.com/webadderallorg/Recordly",
   "releaseReview": {
-    "assetsApproved": false,
-    "microphoneHardwarePassed": false,
-    "cleanInstallPassed": false,
-    "historyReviewed": false
+    "assetsApproved": true,
+    "microphoneHardwarePassed": true,
+    "cleanInstallPassed": true,
+    "historyReviewed": true
   }
 }
