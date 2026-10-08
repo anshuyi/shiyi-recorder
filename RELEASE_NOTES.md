@@ -17,3 +17,5 @@
 源码对应标签 **v0.1.0-beta.2**。保留 Recordly（webadderall）、OpenScreen（Siddharth Vaddem）的来源与署名；许可见 LICENSE.md，实际打包运行库说明见 THIRD_PARTY_NOTICES.md 和安装目录 resources/licenses。具体验证记录见 docs/release-readiness.md。
 
 本轮通过 965 项自动测试与 4 项构建配置测试；实际安装版通过 16 项音频准备、重试、保存、回放和 MP4 导出检查，安装与卸载保留测试项目也通过。音频检查使用合成素材与虚拟声音输出；不代表所有麦克风或摄像头均已验证。在线 Windows 构建结果以对应 Actions 记录为准。
+
+实际匿名下载的安装文件与本机验收文件大小、SHA256 完全一致。Windows Server 额外验收未通过：服务器构建包的安装程序启动崩溃；公开下载包的服务器验证未取得完整日志，原因尚未确认。本版公开的是本机已完成独立安装与回放/导出验收的文件，仍保留测试版标识，未宣称服务器或所有电脑兼容。

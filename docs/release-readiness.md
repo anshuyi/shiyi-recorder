@@ -99,3 +99,6 @@ Windows 安装测试版已在 [v0.1.0-beta.1](https://github.com/anshuyi/shiyi-r
 - 静默安装与卸载完成，卸载后测试项目文件与 SHA256 不变；恢复原有快捷方式。未修改用户录制素材或正在使用的软件目录。
 - 本轮未重做摄像头或其他麦克风硬件验收；8 分钟连续性验证为此前记录，不能认定本轮新增设备兼容性结果。在线构建结果以对应 Actions 运行记录为准。
 - 发行文件 `Shiyi-Recorder-0.1.0-beta.2-windows-x64-Setup.exe` 的 SHA256：`a8c56e342bac86ec5195ec4175999a2513355650ae6094eee721af6f7a1ab47f`。随包公开校验清单、许可证和第三方声明。
+- 新版已公开至 [v0.1.0-beta.2](https://github.com/anshuyi/shiyi-recorder/releases/tag/v0.1.0-beta.2)，标签源码为 `7b0e925e95fd42ff77d54cc1d0f17339141525fb`。匿名 HTTP 请求返回 200，实际下载 157864938 字节，SHA256 与上项一致。GitHub 对上传资产计算的 SHA256 也一致。
+- [服务器构建验收 37784389659](https://github.com/anshuyi/shiyi-recorder/actions/runs/37784389659)：干净检出构建成功；安装程序在约两秒后退出，错误码 -1073741819（0xC0000005），尚未进入录音测试。服务器生成的安装包未作为此次公开附件。
+- [公开安装包服务器验证 37785461328](https://github.com/anshuyi/shiyi-recorder/actions/runs/37785461328)：依赖与媒体准备成功，下载/安装/回放整体步骤未取得完成证据，作业以 failure 结束。取日志返回 `log not found`，无法确认失败阶段和底层原因；不能把此项标为通过，也不能据此认定具体产品功能损坏。保留本机独立安装验收与服务器未通过的差异，等待可复查诊断。
