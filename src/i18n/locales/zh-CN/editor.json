@@ -1,5 +1,6 @@
 {
 	"playback": {
+		"audioPreparing": "正在准备声音…再次点击可取消",
 		"audioRecovering": "声音播放中断，正在尝试恢复。",
 		"audioRecoveryFailed": "声音暂时无法播放，预览已暂停。",
 		"audioRetry": "重试声音",

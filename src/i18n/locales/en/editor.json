@@ -1,5 +1,6 @@
 {
 	"playback": {
+		"audioPreparing": "Preparing audio… click again to cancel",
 		"audioRecovering": "Audio playback stopped. Trying to recover…",
 		"audioRecoveryFailed": "Audio could not resume. Preview has been paused.",
 		"audioRetry": "Retry audio",

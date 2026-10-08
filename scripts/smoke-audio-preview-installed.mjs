@@ -10,6 +10,7 @@ const installed = process.argv.includes('--installed');
 // Hosted Windows runners do not necessarily expose speakers. Chromium's fake
 // output still clocks and decodes the real media stream; signal assertions stay.
 const virtualAudioOutput = process.argv.includes('--virtual-audio-output');
+const readinessRegression = process.argv.includes('--readiness-regression');
 const inputArgument = process.argv.find(a => a.startsWith('--input='))?.slice(8);
 const out = path.join(root, '.tmp/audio-preview-installed', `${installed ? 'installed' : 'packaged'}-${Date.now()}`);
 await fs.mkdir(out, { recursive: true });
@@ -19,7 +20,9 @@ function encode(args) {
   const result = spawnSync(ffmpeg, ['-y', '-v', 'error', ...args], { windowsHide: true, encoding: 'utf8' });
   if (result.status !== 0) throw Error(result.stderr);
 }
-const input = inputArgument || path.join(out, 'screen.mp4');
+// Test fixtures belong to the isolated app profile, covered by normal media permissions.
+await fs.mkdir(path.join(out, 'profile', 'recordings'), { recursive: true });
+const input = inputArgument || path.join(out, 'profile', 'recordings', 'screen.mp4');
 let completeMic;
 if (!inputArgument) {
   encode(['-f', 'lavfi', '-i', 'color=c=blue:s=640x360:r=30:d=8', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', input]);
@@ -47,8 +50,30 @@ try {
   client = await connectPage(page);
   const { evaluate: ev, send } = client;
   await send('Page.enable');
-  await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__testAudio=[];const OriginalAudio=window.Audio;window.Audio=function(...args){const a=new OriginalAudio(...args);window.__testAudio.push(a);return a};window.Audio.prototype=OriginalAudio.prototype;` });
+  // Wait for initial loadURL to finish before reload (otherwise Electron can abort it).
+  await waitFor(() => ev(`location.href.includes('windowType=editor') && document.readyState==='complete' && Boolean(document.querySelector('button[title="Play"]'))`), 'initial editor load');
+  await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__testAudio=[];const OriginalAudio=window.Audio;window.Audio=function(...args){const a=new OriginalAudio(...args);window.__testAudio.push(a);${readinessRegression ? `const descriptor=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'src');const errorDescriptor=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'error');Object.defineProperty(a,'error',{get:()=>window.__testDecodeBroken?{code:3,message:'Injected decode failure'}:errorDescriptor.get.call(a)});const load=a.load.bind(a);let timer;let pending=false;Object.defineProperty(a,'src',{get:()=>descriptor.get.call(a),set:value=>{clearTimeout(timer);pending=Boolean(value);if(!value){descriptor.set.call(a,value);return}timer=setTimeout(()=>{pending=false;descriptor.set.call(a,value);load()},3000)}});a.load=()=>{if(!pending)load()};` : ''}return a};window.Audio.prototype=OriginalAudio.prototype;` });
   await send('Page.reload');
+  if (readinessRegression) {
+    await waitFor(() => ev(`window.__testAudio?.length>0 && Boolean(document.querySelector('button[title="Play"]'))`), 'delayed audio exists');
+    await ev(`document.querySelector('button[title="Play"]').click()`);
+    await pause(500);
+    assert(await ev(`document.querySelector('video').paused && document.querySelector('video').currentTime<0.1`), 'Video waits for companion audio instead of starting silently');
+    assert(await ev(`Boolean(document.querySelector('[data-testid="audio-preparing"]'))`), 'Preparing audio status is visible');
+    await waitFor(() => ev(`!document.querySelector('video').paused && window.__testAudio.some(a=>a.readyState>=2&&!a.paused)`), 'video and audio begin after readiness');
+    assert(true, 'Playback starts automatically only after audio is ready');
+    await ev(`document.querySelector('button[title="Pause"]').click();document.querySelector('video').currentTime=0`);
+    await pause(100);
+    await ev(`window.__testDecodeBroken=true;document.querySelector('button[title="Play"]').click()`);
+    await waitFor(() => ev(`Boolean(document.querySelector('[data-testid="audio-retry"]'))`), 'audio failure offers retry');
+    assert(await ev(`document.querySelector('video').paused`), 'Broken audio pauses video and offers retry');
+    await ev(`window.__testDecodeBroken=false;document.querySelector('[data-testid="audio-retry"]').click()`);
+    await pause(300);
+    assert(await ev(`document.querySelector('video').paused && Boolean(document.querySelector('[data-testid="audio-preparing"]'))`), 'Retry also waits for reloaded audio');
+    await ev(`document.querySelector('button[title="Pause"]').click()`);
+    await pause(3500);
+    assert(await ev(`document.querySelector('video').paused && window.__testAudio.every(a=>a.paused)`), 'Cancelling preparation prevents delayed playback revival');
+  }
   await waitFor(() => ev(`window.__testAudio?.some(a=>a.src && a.readyState>=3)`), 'companion audio ready');
   if (completeMic) {
     const shortDuration = await ev(`window.__testAudio.find(a=>a.src&&a.readyState>=3).duration`);
@@ -96,6 +121,11 @@ try {
   }
   await fs.writeFile(path.join(out, 'results.json'), JSON.stringify({ success: true, virtualAudioOutput, exe, input, checks, before, playing, exportReport }, null, 2));
   console.log(JSON.stringify({ success: true, out, checks, playing }));
+} catch (error) {
+  const state = await client?.evaluate(`({body:document.body.innerText.slice(0,2400),buttons:[...document.querySelectorAll('button')].map(b=>({title:b.title,text:b.innerText})),audio:window.__testAudio?.map(a=>({src:a.src,ready:a.readyState,error:a.error?.message})),videos:[...document.querySelectorAll('video')].map(v=>({src:v.src,ready:v.readyState,error:v.error?.message}))})`).catch(() => null);
+  await fs.writeFile(path.join(out, 'failure.json'), JSON.stringify({error:String(error),state},null,2));
+  console.log(JSON.stringify({stage:'failure',out,state}));
+  throw error;
 } finally {
   client?.close();
   if (child.pid) spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });

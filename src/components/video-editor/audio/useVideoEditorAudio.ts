@@ -77,7 +77,7 @@ export function useVideoEditorAudio({
 		[currentSourcePath],
 	);
 
-	const { sourceAudioFallbackRevision, sourceAudioFallbackPaths, sourceAudioFallbackStartDelayMsByPath, sourceAudioFallbackLoading } =
+	const { sourceAudioFallbackRevision, sourceAudioFallbackPaths, sourceAudioFallbackStartDelayMsByPath, sourceAudioFallbackLoading, sourceAudioFallbackError, retrySourceAudioFallback } =
 		useSourceAudioFallback({
 			currentSourcePath: fallbackLookupSourcePath,
 			refreshKey: sourceAudioFallbackRefreshKey,
@@ -121,6 +121,7 @@ export function useVideoEditorAudio({
 
 	const { playSourceAudioPreview, reloadSourceAudioPreview, savePlaybackDiagnostic } = useAudioPreviewSync({
 		getMainVideo, onPlaybackHealth,
+		sourceAudioFallbackLoading, sourceAudioFallbackError,
 		audioRegions,
 		previewVolume,
 		isPlaying,
@@ -149,6 +150,7 @@ export function useVideoEditorAudio({
 		selectedClipSourceAudioTrackSettings,
 		playSourceAudioPreview,
 		reloadSourceAudioPreview,
+		retrySourceAudioFallback,
 		savePlaybackDiagnostic,
 		getSourceAudioTrackSettingsForClip,
 		onSourceAudioTracksMetaChange,

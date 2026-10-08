@@ -3422,6 +3422,15 @@ export default function VideoEditor() {
 		return result;
 	}, [clipRegions, speedRegions]);
 	const [audioHealth, setAudioHealth] = useState<"ready" | "recovering" | "failed">("ready");
+	const [audioPreparing, setAudioPreparing] = useState(false);
+	const playbackPreparationRef = useRef<AbortController | null>(null);
+	const cancelPlaybackPreparation = useCallback(() => {
+		playbackPreparationRef.current?.abort();
+		playbackPreparationRef.current = null;
+		setAudioPreparing(false);
+		toast.dismiss("audio-preparing");
+	}, []);
+	useEffect(() => cancelPlaybackPreparation, [currentSourcePath, cancelPlaybackPreparation]);
 	useEffect(() => { setAudioHealth("ready"); toast.dismiss("audio-playback-health"); }, [currentSourcePath]);
 	const getMainAudioClock = useCallback(() => videoPlaybackRef.current?.video ?? null, []);
 	const audio = useVideoEditorAudio({
@@ -3465,29 +3474,50 @@ export default function VideoEditor() {
 	});
 
 	const getActivePlayback = useCallback(() => videoPlaybackRef.current, []);
-
-	const startPlayback = useCallback(() => {
+	const startPlayback = useCallback(async () => {
 		const playback = getActivePlayback();
 		const video = playback?.video;
-		if (!playback || !video) return;
-
-		audio.playSourceAudioPreview();
-		setAudioHealth("ready");
-		toast.dismiss("audio-playback-health");
-		playback.play().catch((err) => console.error("Video play failed:", err));
-	}, [audio.playSourceAudioPreview, getActivePlayback]);
+		if (!playback || !video || playbackPreparationRef.current) return;
+		const controller = new AbortController();
+		playbackPreparationRef.current = controller;
+		setAudioPreparing(true);
+		toast.info(t("editor.playback.audioPreparing", "Preparing audio…"), { id: "audio-preparing", duration: Infinity });
+		try {
+			await audio.playSourceAudioPreview(controller.signal);
+			if (controller.signal.aborted || getActivePlayback()?.video !== video) return;
+			await playback.play();
+			if (controller.signal.aborted) { playback.pause(); return; }
+			setAudioHealth("ready");
+			toast.dismiss("audio-playback-health");
+		} catch (error) {
+			if (controller.signal.aborted) return;
+			playback.pause();
+			setIsPlaying(false);
+			setAudioHealth("failed");
+			toast.warning(t("editor.playback.audioRecoveryFailed"), { id: "audio-playback-health", duration: Infinity });
+			console.error("Audio preparation / video play failed:", error);
+		} finally {
+			if (playbackPreparationRef.current === controller) cancelPlaybackPreparation();
+		}
+	}, [audio.playSourceAudioPreview, getActivePlayback, cancelPlaybackPreparation, t]);
 
 	const retryAudioPlayback = useCallback(() => {
+		cancelPlaybackPreparation();
+		getActivePlayback()?.pause();
+		audio.retrySourceAudioFallback();
 		audio.reloadSourceAudioPreview();
-		getActivePlayback()?.play().catch(err => console.error("Video play failed:", err));
-	}, [audio.reloadSourceAudioPreview, getActivePlayback]);
+		void startPlayback();
+	}, [audio.retrySourceAudioFallback, audio.reloadSourceAudioPreview, startPlayback, cancelPlaybackPreparation, getActivePlayback]);
 
 	function togglePlayPause() {
 		const playback = getActivePlayback();
 		const video = playback?.video;
 		if (!playback || !video) return;
 
-		if (!video.paused && !video.ended) {
+		if (playbackPreparationRef.current) {
+			cancelPlaybackPreparation();
+			playback.pause();
+		} else if (!video.paused && !video.ended) {
 			playback.pause();
 		} else {
 			startPlayback();
@@ -3503,6 +3533,7 @@ export default function VideoEditor() {
 			const playback = getActivePlayback();
 			const video = playback?.video;
 			if (!video) return;
+			if (options.pause) cancelPlaybackPreparation();
 
 			if (options.pause && !video.paused) {
 				playback?.pause();
@@ -3510,7 +3541,7 @@ export default function VideoEditor() {
 
 			video.currentTime = mapTimelineTimeToSourceTime(time * 1000) / 1000;
 		},
-		[getActivePlayback, mapTimelineTimeToSourceTime],
+		[getActivePlayback, mapTimelineTimeToSourceTime, cancelPlaybackPreparation],
 	);
 
 	const handleTimelineSeek = useCallback(
@@ -4276,7 +4307,10 @@ export default function VideoEditor() {
 
 				const playback = videoPlaybackRef.current;
 				if (playback?.video) {
-					if (playback.video.paused) {
+					if (playbackPreparationRef.current) {
+						cancelPlaybackPreparation();
+						playback.pause();
+					} else if (playback.video.paused) {
 						startPlayback();
 					} else {
 						playback.pause();
@@ -4287,7 +4321,7 @@ export default function VideoEditor() {
 
 		window.addEventListener("keydown", handleKeyDown, { capture: true });
 		return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-	}, [shortcuts, isMac, handleUndo, handleRedo, startPlayback]);
+	}, [shortcuts, isMac, handleUndo, handleRedo, startPlayback, cancelPlaybackPreparation]);
 
 	useEffect(() => {
 		if (selectedZoomId && !zoomRegions.some((region) => region.id === selectedZoomId)) {
@@ -6655,9 +6689,9 @@ export default function VideoEditor() {
 										size="icon"
 										className={`h-7 w-7 rounded-full border border-foreground/10 transition-all shadow-[0_8px_18px_rgba(0,0,0,0.18)] ${isPlaying ? "bg-foreground/10 text-foreground hover:bg-foreground/20" : "bg-neutral-800 text-white hover:bg-neutral-700 dark:bg-white dark:text-black dark:hover:bg-white/90"}`}
 										onClick={togglePlayPause}
-										title={isPlaying ? "Pause" : "Play"}
+										title={isPlaying || audioPreparing ? "Pause" : "Play"}
 									>
-										{isPlaying ? (
+										{isPlaying || audioPreparing ? (
 											<Pause className="w-3.5 h-3.5" weight="fill" />
 										) : (
 											<Play className="w-3.5 h-3.5" weight="fill" />
@@ -6679,6 +6713,7 @@ export default function VideoEditor() {
 							</div>
 							{/* Right: collapse + volume */}
 							<div className="z-10 ml-auto flex items-center gap-2">
+								{audioPreparing && <span role="status" data-testid="audio-preparing" className="text-xs text-muted-foreground">{t("editor.playback.audioPreparing", "Preparing audio…")}</span>}
 								{audioHealth === "failed" && <Button size="sm" variant="outline" data-testid="audio-retry" onClick={retryAudioPlayback}>{t("editor.playback.audioRetry")}</Button>}
 								<Button size="sm" variant="ghost" data-testid="audio-diagnostics" onClick={() => {
 									void audio.savePlaybackDiagnostic().then(result => {

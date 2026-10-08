@@ -10,6 +10,8 @@ const OriginalRecorder = window.MediaRecorder;
 async function scenario(mode: string) {
  let current: ReturnType<typeof useScreenRecorder>;
  let starts=0, stops=0, ready=0, gets=0, finished=false;
+ let editorOpens=0, muxes=0, saves=0, closeHud=0;
+ let finishSave: ((value: {success:boolean;error?:string})=>void) | undefined;
  const tracks: MediaStreamTrack[]=[];
  const microphoneEnabled=mode!=="disabled";
  let late: ((stream: MediaStream) => void) | undefined;
@@ -20,6 +22,10 @@ async function scenario(mode: string) {
   isNativeWindowsCaptureAvailable:async()=>({available:true}),startNativeScreenRecording:async()=>{starts++;return{success:true,microphoneFallbackRequired:microphoneEnabled};},
   stopNativeScreenRecording:async()=>{stops++;return{success:true,path:"test.mp4"};},deleteRecordingFile:async()=>({success:true}),
   setRecordingState:async(value:boolean)=>{if(value)ready++;else finished=true;},hudOverlaySetSourceSelectionActive:()=>{},reportOperation:()=>{},
+  storeMicrophoneSidecar:async()=>{saves++;return await new Promise<{success:boolean;error?:string}>(resolve=>{finishSave=resolve;});},
+  muxNativeWindowsRecording:async()=>{muxes++;return{success:true};},
+  setCurrentVideoPath:async()=>({success:true}),setCurrentRecordingSession:async()=>({success:true}),
+  switchToEditor:async()=>{editorOpens++;},hudOverlayClose:()=>{closeHud++;},
  };
  Object.defineProperty(window,"electronAPI",{configurable:true,value:api});
  navigator.mediaDevices.enumerateDevices=async()=>[{kind:"audioinput",deviceId:"new-id",label:"Test Mic",groupId:"test"} as MediaDeviceInfo];
@@ -41,11 +47,20 @@ async function scenario(mode: string) {
  await until(()=>ready>0||finished);
  await sleep(30);
  await until(()=>!current!.starting);
- if(mode==="success"||mode==="disabled") {
+ if(mode==="success"||mode==="disabled"||mode.startsWith("finalize")) {
   assert(current!.recording&&ready===1,"ready state expected");
   assert(starts===1,"native capture starts once");
   if(mode==="disabled")assert(gets===0,"disabled microphone must not acquire audio");
-  current!.cancelRecording();await sleep(150);
+  if(mode.startsWith("finalize")) {
+   await current!.toggleRecording();await until(()=>saves===1);
+   assert(editorOpens===0&&muxes===0&&current!.finalizing,"editor must wait for microphone publication");
+   await sleep(100);assert(editorOpens===0,"slow microphone save must not open a silent editor");
+   finishSave!({success:mode==="finalize-success",error:mode==="finalize-success"?undefined:"simulated disk failure"});
+   await until(()=>!current!.finalizing);
+   if(mode==="finalize-success")assert(editorOpens===1&&muxes===1,"audio must be finalized before opening editor");
+   else assert(editorOpens===0&&muxes===0,"failed audio save must not masquerade as successful recording");
+   await until(()=>closeHud>0);
+  }else{current!.cancelRecording();await sleep(150);}
  } else {
   assert(!current!.recording&&ready===0,"failure must never declare recording");
   if(mode==="recorder-error")assert(starts===1&&stops===1,`partial native startup must be stopped: starts=${starts}, stops=${stops}, gets=${gets}`);
@@ -57,4 +72,4 @@ async function scenario(mode: string) {
  navigator.mediaDevices.getUserMedia=originalGet;navigator.mediaDevices.enumerateDevices=originalEnum;window.MediaRecorder=OriginalRecorder;
  return mode;
 }
-(window as any).smokePromise=(async()=>{const checks=[];for(const mode of ["missing","denied","recorder-error","cancel","disabled","success"])checks.push(await scenario(mode));return{checks};})();
+(window as any).smokePromise=(async()=>{const checks=[];for(const mode of ["missing","denied","recorder-error","cancel","disabled","success","finalize-success","finalize-failure"])checks.push(await scenario(mode));return{checks};})();

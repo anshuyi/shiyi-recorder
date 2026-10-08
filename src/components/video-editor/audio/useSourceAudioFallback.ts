@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SOURCE_AUDIO_FALLBACK_TOAST_ID } from "@/components/video-editor/audio/audioTypes";
 
@@ -18,12 +18,15 @@ export function useSourceAudioFallback({
   const [sourceAudioFallbackStartDelayMsByPath, setSourceAudioFallbackStartDelayMsByPath] =
     useState<Record<string, number>>({});
   const previousSourcePathRef = useRef<string | null>(null);
-  const [settledLookup, setSettledLookup] = useState<{path:string; key:number} | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const lookupKey = `${refreshKey}:${retryKey}`;
+  const [settledLookup, setSettledLookup] = useState<{path:string; key:string; error?:unknown} | null>(null);
+  const retrySourceAudioFallback = useCallback(() => setRetryKey(value => value + 1), []);
 
   useEffect(() => {
     let cancelled = false;
     // Refetch when late recording sidecars are finalized after the editor opens.
-    void refreshKey;
+    void lookupKey;
     const sourceChanged = previousSourcePathRef.current !== currentSourcePath;
     previousSourcePathRef.current = currentSourcePath;
     if (sourceChanged) {
@@ -38,12 +41,14 @@ export function useSourceAudioFallback({
     }
 
     void (async () => {
+      let lookupError: unknown;
       try {
         const result = await window.electronAPI.getVideoAudioFallbackPaths(currentSourcePath);
         if (cancelled) {
           return;
         }
         if (!result.success) {
+          lookupError = new Error(result.error || "Could not load companion audio sources");
           if (sourceChanged) {
             setSourceAudioFallbackPaths([]);
             setSourceAudioFallbackStartDelayMsByPath({});
@@ -62,6 +67,7 @@ export function useSourceAudioFallback({
         setSourceAudioFallbackPaths(result.paths ?? []);
         setSourceAudioFallbackStartDelayMsByPath(result.startDelayMsByPath ?? {});
       } catch (error) {
+        lookupError = error;
         if (!cancelled) {
           if (sourceChanged) {
             setSourceAudioFallbackPaths([]);
@@ -73,15 +79,17 @@ export function useSourceAudioFallback({
           );
         }
       } finally {
-        if (!cancelled && currentSourcePath) setSettledLookup({path:currentSourcePath,key:refreshKey});
+        if (!cancelled && currentSourcePath) setSettledLookup({path:currentSourcePath,key:lookupKey,error:lookupError});
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [currentSourcePath, refreshKey, summarizeErrorMessage]);
+  }, [currentSourcePath, lookupKey, summarizeErrorMessage]);
 
   return { sourceAudioFallbackRevision, sourceAudioFallbackPaths, sourceAudioFallbackStartDelayMsByPath,
-    sourceAudioFallbackLoading: Boolean(currentSourcePath && (settledLookup?.path !== currentSourcePath || settledLookup.key !== refreshKey)) };
+    retrySourceAudioFallback,
+    sourceAudioFallbackError: settledLookup?.path === currentSourcePath && settledLookup.key === lookupKey ? settledLookup.error : undefined,
+    sourceAudioFallbackLoading: Boolean(currentSourcePath && (settledLookup?.path !== currentSourcePath || settledLookup.key !== lookupKey)) };
 }

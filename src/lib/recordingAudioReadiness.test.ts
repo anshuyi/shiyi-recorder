@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { monitorRecordingAudio, startRecorderWithAudio } from "./recordingAudioReadiness";
 function fixture() {
-	const track = Object.assign(new EventTarget(), { readyState: "live", enabled: true });
+	const track = Object.assign(new EventTarget(), { readyState: "live", enabled: true, muted: false });
 	const mic = { getAudioTracks: () => [track] } as unknown as MediaStream;
 	const r = Object.assign(new EventTarget(), { state: "inactive", start: vi.fn(() => { r.state = "recording"; }) });
 	const recorder = r as unknown as MediaRecorder;
@@ -18,6 +18,26 @@ describe("audio startup readiness", () => {
 	it("rejects recorder errors", async () => { const f = fixture(); const p = startRecorderWithAudio(f.recorder, f.mic); f.r.dispatchEvent(new Event("error")); await expect(p).rejects.toThrow("采集失败"); });
 });
 describe("recording audio monitor", () => {
+	it("detects a muted capture source even while silent chunks keep arriving", async () => {
+		vi.useFakeTimers(); const f = fixture(); f.r.state = "recording"; f.track.muted = true;
+		const fault = vi.fn(); monitorRecordingAudio(f.recorder, f.mic, fault);
+		for (let i = 0; i < 7; i++) { f.chunk(); await vi.advanceTimersByTimeAsync(1000); }
+		expect(fault).toHaveBeenCalledOnce(); expect(fault.mock.calls[0][0]).toContain("无法提供声音");
+	});
+	it("allows brief source mute and normal pauses without a false alarm", async () => {
+		vi.useFakeTimers(); const f = fixture(); f.r.state = "recording";
+		const fault = vi.fn(); const dispose = monitorRecordingAudio(f.recorder, f.mic, fault);
+		f.track.muted = true; await vi.advanceTimersByTimeAsync(2000); f.track.muted = false;
+		f.chunk(); await vi.advanceTimersByTimeAsync(1000); f.r.state = "paused"; f.track.muted = true;
+		await vi.advanceTimersByTimeAsync(20000); f.r.state = "recording"; f.track.muted = false; f.r.dispatchEvent(new Event("resume"));
+		f.chunk(); await vi.advanceTimersByTimeAsync(1000); expect(fault).not.toHaveBeenCalled(); dispose();
+	});
+	it("does not accept chunks from a muted microphone as startup readiness", async () => {
+		vi.useFakeTimers(); const f = fixture(); f.track.muted = true;
+		const result = expect(startRecorderWithAudio(f.recorder, f.mic)).rejects.toThrow("超时");
+		for (let i = 0; i < 9; i++) { f.chunk(); await vi.advanceTimersByTimeAsync(1000); }
+		await result;
+	});
 	it("stops once on disconnection and detaches", () => { const f = fixture(); const fault = vi.fn(); monitorRecordingAudio(f.recorder, f.mic, fault); f.track.dispatchEvent(new Event("ended")); f.r.dispatchEvent(new Event("error")); expect(fault).toHaveBeenCalledOnce(); });
 	it("ignores natural silence with chunks and normal pauses", async () => { vi.useFakeTimers(); const f = fixture(); f.r.state = "recording"; const fault = vi.fn(); const dispose = monitorRecordingAudio(f.recorder, f.mic, fault); for (let i = 0; i < 20; i++) { f.chunk(); await vi.advanceTimersByTimeAsync(1000); } f.r.state = "paused"; await vi.advanceTimersByTimeAsync(20000); f.r.state = "recording"; f.r.dispatchEvent(new Event("resume")); await vi.advanceTimersByTimeAsync(1000); expect(fault).not.toHaveBeenCalled(); dispose(); });
 	it("detects data starvation but not an intentional stop", async () => { vi.useFakeTimers(); const f = fixture(); f.r.state = "recording"; const fault = vi.fn(); const dispose = monitorRecordingAudio(f.recorder, f.mic, fault); await vi.advanceTimersByTimeAsync(16000); expect(fault).toHaveBeenCalledOnce(); dispose(); f.r.dispatchEvent(new Event("stop")); expect(fault).toHaveBeenCalledOnce(); });

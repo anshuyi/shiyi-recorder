@@ -18,7 +18,7 @@ export function startRecorderWithAudio(recorder: MediaRecorder, microphone: Medi
 			signal?.removeEventListener("abort", aborted);
 			error ? reject(error) : resolve();
 		};
-		const data = (event: BlobEvent) => { if (event.data.size > 0) finish(); };
+		const data = (event: BlobEvent) => { if (event.data.size > 0 && !track.muted && track.enabled && track.readyState === "live") finish(); };
 		const failed = () => finish(new Error("麦克风采集失败，请检查设备连接和权限"));
 		const stopped = () => finish(new Error("声音录制器在准备完成前已停止"));
 		const aborted = () => finish(new DOMException("操作已取消", "AbortError"));
@@ -37,29 +37,36 @@ export function startRecorderWithAudio(recorder: MediaRecorder, microphone: Medi
 export function monitorRecordingAudio(recorder: MediaRecorder, microphone: MediaStream, onFault: (reason: string) => void, timeoutMs = 15000) {
 	const track = requireLiveMicrophone(microphone);
 	let lastData = performance.now();
+	let lastAvailable = performance.now();
 	let done = false;
 	const reset = () => { lastData = performance.now(); };
+	const resumed = () => { reset(); lastAvailable = performance.now(); };
 	const data = (event: BlobEvent) => { if (event.data.size > 0) reset(); };
 	const fault = (reason: string) => { if (!done) { dispose(); onFault(reason); } };
 	const ended = () => fault("麦克风已断开");
 	const failed = () => fault("声音录制器发生错误");
 	const stopped = () => fault("声音录制器意外停止");
 	const timer = setInterval(() => {
-		if (recorder.state === "paused") reset();
-		else if (recorder.state === "recording" && performance.now() - lastData > timeoutMs) fault("长时间未收到声音数据");
+		if (recorder.state === "paused") resumed();
+		else if (recorder.state === "recording") {
+			if (!track.enabled || track.readyState !== "live") fault("麦克风已断开或关闭");
+			else if (track.muted && performance.now() - lastAvailable >= 5000) fault("麦克风设备无法提供声音，录制已停止以保留现有素材");
+			else if (performance.now() - lastData > timeoutMs) fault("长时间未收到声音数据");
+			if (!track.muted) lastAvailable = performance.now();
+		}
 	}, 1000);
 	function dispose() {
 		done = true; clearInterval(timer);
 		recorder.removeEventListener("dataavailable", data);
 		recorder.removeEventListener("error", failed);
 		recorder.removeEventListener("stop", stopped);
-		recorder.removeEventListener("resume", reset);
+		recorder.removeEventListener("resume", resumed);
 		track.removeEventListener("ended", ended);
 	}
 	recorder.addEventListener("dataavailable", data);
 	recorder.addEventListener("error", failed);
 	recorder.addEventListener("stop", stopped);
-	recorder.addEventListener("resume", reset);
+	recorder.addEventListener("resume", resumed);
 	track.addEventListener("ended", ended);
 	return dispose;
 }

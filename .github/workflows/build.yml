@@ -30,7 +30,7 @@ jobs:
           $testExe = Join-Path $testInstallPath '十一录屏.exe'
           if (!(Test-Path -LiteralPath $testExe)) { throw 'Installed app is missing' }
           Write-Host 'Installation complete; starting decoded playback and MP4 export checks'
-          node scripts/smoke-audio-preview-installed.mjs --installed --virtual-audio-output "--exe=$testExe"
+          node scripts/smoke-audio-preview-installed.mjs --installed --virtual-audio-output --readiness-regression "--exe=$testExe"
           if ($LASTEXITCODE -ne 0) { throw 'Installed playback and export smoke failed' }
           $savedProjects = @(Get-ChildItem .tmp/audio-preview-installed -Recurse -Filter audio.recordly)
           if ($savedProjects.Count -eq 0) { throw 'Saved test project is missing' }

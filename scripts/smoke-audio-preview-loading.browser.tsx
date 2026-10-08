@@ -10,7 +10,7 @@ let revocations = 0, errors: unknown[] = [], api: ReturnType<typeof useAudioPrev
 class FakeAudio {
   src = ""; dataset: Record<string,string> = {}; duration = 10; currentTime = 0;
   paused = true; volume = 1; muted = false; playbackRate = 1; playCalls = 0;
-  failure: Error | null = null; error = null;
+  failure: Error | null = null; error = null; readyState = 4;
   constructor() { audios.push(this); }
   getAttribute(name: string) { return name === "src" ? this.src : null; }
   load() {}
@@ -49,7 +49,7 @@ export async function run() {
   api.reloadSourceAudioPreview(); await wait();
   assert(requests.length===3,"explicit reload invalidates even ready audio without media errors");
   resolve(2); await wait();
-  api.playSourceAudioPreview(); await wait();
+  await api.playSourceAudioPreview(); await wait();
   assert(requests.length===3,"ordinary play does not reload ready audio");
   await test.close();
 
@@ -81,7 +81,7 @@ export async function run() {
   test = await setup(); requests[0].reject(Error("transient")); await wait(); requests[1].reject(Error("missing")); await wait();
   await test.render({previewVolume:.7}); await test.render({currentTime:1});
   assert(requests.length===2 && errors.length===1,"failed source has bounded retries and one notification");
-  api.playSourceAudioPreview(); await wait(); resolve(2); await wait();
+  const preparation = api.playSourceAudioPreview(); await wait(); resolve(2); await preparation; await wait();
   assert(!!audios[0].src,"explicit play retries a failed resource"); await test.close();
 
   test = await setup();

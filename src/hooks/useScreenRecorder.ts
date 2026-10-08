@@ -898,11 +898,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				if (!result.success) {
 					const errorMessage =
 						result.error || "Failed to save the fallback microphone audio track";
-					console.warn("Failed to store microphone sidecar:", errorMessage);
-					toast.error(
-						`${errorMessage}. Recording was saved without the fallback microphone track.`,
-						{ id: MICROPHONE_SIDECAR_ERROR_TOAST_ID, duration: 10000 },
-					);
+					throw new Error(errorMessage);
 				}
 			} catch (error) {
 				console.warn("Failed to store microphone sidecar:", error);
@@ -910,6 +906,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					`${getErrorMessage(error)}. Recording was saved without the fallback microphone track.`,
 					{ id: MICROPHONE_SIDECAR_ERROR_TOAST_ID, duration: 10000 },
 				);
+				throw error;
 			} finally {
 				micFallbackStartDelayMs.current = null;
 				micFallbackTrackSettings.current = null;
@@ -1173,8 +1170,16 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
 				const finalPath = result.path;
 
-				// 1. Finalize the session and switch to editor immediately (Optimistic UI)
-				// We pass null for webcamPath initially to avoid blocking on webcam disk writes/muxing.
+				// Publish the session only after its companion audio has been saved.
+				// Otherwise the editor can find no tracks and start silently while they are still written.
+				await storeMicrophoneSidecar(
+					micFallbackBlobPromise, finalPath, fallbackStartDelayMs, fallbackTrackSettings,
+				);
+				if (isNativeWindows) {
+					const muxResult = await window.electronAPI.muxNativeWindowsRecording(expectedDurationMs);
+					if (!muxResult.success) throw new Error(muxResult.error || "Failed to finalize recording audio");
+				}
+				// Webcam processing can continue independently without delaying playable audio.
 				await finalizeRecordingSession(finalPath, null);
 
 				// 2. Perform background finalization (webcam, muxing, sidecars)
@@ -1187,19 +1192,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 							"[useScreenRecorder] Background native processing: webcamPath is",
 							webcamPath,
 						);
-
-						// Store sidecars
-						await storeMicrophoneSidecar(
-							micFallbackBlobPromise,
-							finalPath,
-							fallbackStartDelayMs,
-							fallbackTrackSettings,
-						);
-
-						// Perform muxing/renaming if on Windows
-						if (isNativeWindows) {
-							await window.electronAPI.muxNativeWindowsRecording(expectedDurationMs);
-						}
 
 						console.log(
 							"[useScreenRecorder] Emitting setCurrentRecordingSession with:",
@@ -1234,6 +1226,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			})().catch(async () => {
 				reportOperation("save", "error");
 				await notifyRecordingFinalizationFailure("保存录制时发生异常，已保留现有素材，请打开录制文件夹检查。");
+				window.electronAPI?.hudOverlayClose?.();
 			});
 			return;
 		}

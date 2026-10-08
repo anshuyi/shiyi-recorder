@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AudioPreviewMonitor, type AudioTarget } from "./audioPreviewMonitor";
 import { PreviewAudioResources } from "./previewAudioResource";
+import { waitForPreviewAudio } from "./previewAudioReadiness";
 import { buildResolvedAudioPlan } from "@/lib/exporter/audioRoutingEngine";
 import { resolveMediaElementSource } from "@/lib/exporter/localMediaSource";
 import {
@@ -23,6 +24,8 @@ interface UseAudioPreviewSyncParams {
   duration: number;
   effectiveSpeedRegions: SpeedRegion[];
   sourceAudioFallbackRevision?: number;
+  sourceAudioFallbackLoading?: boolean;
+  sourceAudioFallbackError?: unknown;
   previewSourceAudioFallbackPaths: string[];
   sourceAudioFallbackStartDelayMsByPath: Record<string, number>;
   isCurrentClipMuted: boolean;
@@ -41,6 +44,8 @@ export function useAudioPreviewSync({
   duration,
   effectiveSpeedRegions,
   sourceAudioFallbackRevision = 0,
+  sourceAudioFallbackLoading = false,
+  sourceAudioFallbackError,
   previewSourceAudioFallbackPaths,
   sourceAudioFallbackStartDelayMsByPath,
   isCurrentClipMuted,
@@ -116,6 +121,8 @@ export function useAudioPreviewSync({
   const sourceRevisionRef = useRef(sourceAudioFallbackRevision);
   sourceRevisionRef.current = sourceAudioFallbackRevision;
   const manualReloadPending = useRef(false);
+  const preparation = useRef({ sourceAudioFallbackLoading, sourceAudioFallbackError, resolvedSourceTracks, resolvedUserTracks });
+  preparation.current = { sourceAudioFallbackLoading, sourceAudioFallbackError, resolvedSourceTracks, resolvedUserTracks };
   const targetFor=useCallback((audio:HTMLAudioElement):AudioTarget=>{
     const p=latest.current,video=p.getMainVideo?.(),info=trackInfo.current.get(audio);
     const videoTime=video?.currentTime??p.currentTime;
@@ -175,17 +182,27 @@ export function useAudioPreviewSync({
     }
   }, []);
 
-  const playSourceAudioPreview = useCallback(() => {
+  const playSourceAudioPreview = useCallback(async (signal?: AbortSignal) => {
     monitor.retry();
     userResources.retryFailed();
     sourceResources.retryFailed();
     reportedPlaybackErrorsRef.current = new WeakSet();
     setResourceVersion((value) => value + 1);
-    void ensureSourceAudioRunning();
-    for (const audio of sourceAudioElementsRef.current.values()) {
-      playAudio(audio);
-    }
-  }, [ensureSourceAudioRunning, playAudio, sourceResources, userResources, monitor]);
+    await waitForPreviewAudio(() => {
+      const p = preparation.current;
+      return {
+        loading: p.sourceAudioFallbackLoading,
+        error: p.sourceAudioFallbackError,
+        tracks: [
+          ...p.resolvedSourceTracks.map(track => sourceAudioElementsRef.current.get(track.sourceRef.path)),
+          ...p.resolvedUserTracks.map(track => audioElementsRef.current.get(track.id)),
+        // Clearing src during retry leaves the old decode error on Chromium's element.
+        // Until the replacement URL is assigned it is pending, not a failed new load.
+        ].map(audio => audio?.getAttribute("src") ? audio : undefined),
+      };
+    }, signal);
+    // Actual audio starts from the normal synchronization effect once video plays.
+  }, [sourceResources, userResources, monitor]);
 
   const reloadSourceAudioPreview = useCallback(() => {
     manualReloadPending.current = true;
