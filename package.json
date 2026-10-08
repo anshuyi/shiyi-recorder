@@ -4,7 +4,7 @@
 	"description": "十一录屏：自由选区录制、独立人像编辑与视频导出。基于 Recordly。",
 	"author": "十一录屏 contributors",
 	"private": true,
-	"version": "0.1.0-beta.1",
+	"version": "0.1.0-beta.2",
 	"type": "module",
 	"scripts": {
 		"prepare:mediapipe-assets": "node scripts/prepare-mediapipe-assets.mjs",

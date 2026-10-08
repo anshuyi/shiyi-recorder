@@ -2,17 +2,17 @@
 
 面向内容创作者的本地录屏与编辑工具，基于 [Recordly](https://github.com/webadderallorg/Recordly) 修改，保留原作者 webadderall 和 OpenScreen 作者 Siddharth Vaddem 的署名。
 
-**[下载安装 · Windows 64 位](https://github.com/anshuyi/shiyi-recorder/releases/tag/v0.1.0-beta.1)**
+**[下载安装 · Windows 64 位](https://github.com/anshuyi/shiyi-recorder/releases/download/v0.1.0-beta.2/Shiyi-Recorder-0.1.0-beta.2-windows-x64-Setup.exe)** · [版本说明与校验文件](https://github.com/anshuyi/shiyi-recorder/releases/tag/v0.1.0-beta.2)
 
-当前版本：**0.1.0-beta.1 测试版**。Windows 10/11 x64；macOS/Linux 暂不提供安装包。
+当前版本：**0.1.0-beta.2 测试版**。Windows 10/11 x64；macOS/Linux 暂不提供安装包。
 
 ## 下载与安装
 
-1. 打开上面的下载页面，在 **Assets（附件）** 中选择 `Shiyi-Recorder-0.1.0-beta.1-windows-x64-Setup.exe`。
+1. 点击上方 **下载安装 · Windows 64 位**，下载 `Shiyi-Recorder-0.1.0-beta.2-windows-x64-Setup.exe`。
 2. 下载后双击安装，选择安装位置，再从桌面或开始菜单打开“十一录屏”。**不需要安装 Node.js、Git 或其他编程工具。**
 3. 首次使用先在麦克风菜单选择你要用的设备，短录一段并检查回放，再开始正式录制。
 
-[直接下载安装包](https://github.com/anshuyi/shiyi-recorder/releases/download/v0.1.0-beta.1/Shiyi-Recorder-0.1.0-beta.1-windows-x64-Setup.exe) · [校验文件 SHA256SUMS](https://github.com/anshuyi/shiyi-recorder/releases/download/v0.1.0-beta.1/SHA256SUMS-windows.txt)
+[直接下载安装包](https://github.com/anshuyi/shiyi-recorder/releases/download/v0.1.0-beta.2/Shiyi-Recorder-0.1.0-beta.2-windows-x64-Setup.exe) · [校验文件 SHA256SUMS](https://github.com/anshuyi/shiyi-recorder/releases/download/v0.1.0-beta.2/SHA256SUMS-windows.txt)
 
 安装包未进行代码签名，Windows 可能显示“未知发布者”；请核对下载来源及校验文件。`Source code (zip)` 和仓库 **Code → Download ZIP** 是源码，不是安装程序。
 
@@ -25,8 +25,9 @@
 - 背景、光标效果、时间线编辑和视频导出。
 - 麦克风伴随音频完整保存后才加载；保存完成及明确重试会刷新同路径声音，避免播放器沿用半成品的错误时长。
 - 麦克风开启但启动失败时取消录制启动；不会自动降级为无声录制。重启后按当前设备重新确认选择，无法唯一匹配时要求重选。
+- 结束录制后先保存完整声音再进入编辑器；播放时显示“正在准备音频”，失败可重试。录制中麦克风失效会提示并停止保存已有素材。
 
-自动测试已通过 956 项；本机真实麦克风阵列连续录制约 481 秒未检测到中断；公开安装版通过回放、完整音轨保存和导出末段声音检查。摄像头、其他麦克风及不同电脑的兼容性尚未全面实测。
+自动测试已通过 965 项；上一版真实麦克风阵列连续录制约 481 秒未检测到中断。各版安装包的回放、完整音轨保存与导出验收见下方发行验收表。摄像头、其他麦克风及不同电脑的兼容性尚未全面实测。
 
 Windows Server 上的自动安装/声音/导出验收尚未全部通过，已补充测试专用虚拟音频输出、超时与诊断记录；不能把本机结果视为所有电脑均已验证。当前公开文件是安装测试版。
 
