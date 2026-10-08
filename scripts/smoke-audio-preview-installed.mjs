@@ -7,6 +7,9 @@ import { connectPage, pause, waitFor } from './lib/recordly-test-client.mjs';
 const require = createRequire(import.meta.url);
 const root = path.resolve(import.meta.dirname, '..');
 const installed = process.argv.includes('--installed');
+// Hosted Windows runners do not necessarily expose speakers. Chromium's fake
+// output still clocks and decodes the real media stream; signal assertions stay.
+const virtualAudioOutput = process.argv.includes('--virtual-audio-output');
 const inputArgument = process.argv.find(a => a.startsWith('--input='))?.slice(8);
 const out = path.join(root, '.tmp/audio-preview-installed', `${installed ? 'installed' : 'packaged'}-${Date.now()}`);
 await fs.mkdir(out, { recursive: true });
@@ -35,7 +38,7 @@ const env = { ...process.env, RECORDLY_DEV_OPEN_RECORDING_INPUT: input };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.VITE_DEV_SERVER_URL;
 const log = await fs.open(path.join(out, 'app.log'), 'w');
-const child = spawn(exe, [`--user-data-dir=${path.join(out, 'profile')}`, '--remote-debugging-port=9367', '--remote-debugging-address=127.0.0.1', '--disable-background-timer-throttling', '--mute-audio'], { env, windowsHide: true, stdio: ['ignore', log.fd, log.fd] });
+const child = spawn(exe, [`--user-data-dir=${path.join(out, 'profile')}`, '--remote-debugging-port=9367', '--remote-debugging-address=127.0.0.1', '--disable-background-timer-throttling', '--mute-audio', ...(virtualAudioOutput ? ['--disable-audio-output'] : [])], { env, windowsHide: true, stdio: ['ignore', log.fd, log.fd] });
 let client;
 const checks = [];
 const assert = (ok, message) => { if (!ok) throw Error(message); checks.push(message); };
@@ -60,6 +63,8 @@ try {
   const result = await send('Runtime.evaluate', { expression: `(async()=>{const a=window.__testAudio.find(a=>a.src&&a.readyState>=3);const ctx=new AudioContext();const analyser=ctx.createAnalyser();const source=ctx.createMediaElementSource(a);source.connect(analyser);analyser.connect(ctx.destination);await ctx.resume();document.querySelector('button[title="Play"],button[title="播放"]').click();let peak=0;const samples=new Float32Array(analyser.fftSize);for(let i=0;i<30;i++){await new Promise(r=>setTimeout(r,100));analyser.getFloatTimeDomainData(samples);peak=Math.max(peak,...samples.map(Math.abs));}return {peak,time:a.currentTime,paused:a.paused,volume:a.volume,muted:a.muted,error:a.error?.message}})()`, awaitPromise: true, returnByValue: true, userGesture: true });
   if (result.exceptionDetails) throw Error(JSON.stringify(result.exceptionDetails));
   const playing = result.result.value;
+  await fs.writeFile(path.join(out, 'playback-attempt.json'), JSON.stringify({ virtualAudioOutput, before, playing }, null, 2));
+  console.log(JSON.stringify({ stage: 'decoded-playback-check', virtualAudioOutput, playing }));
   assert(playing.peak > 0.001 && playing.time > 1 && !playing.paused && !playing.muted && playing.volume > 0, 'Decoded audio signal reaches playback output');
   await ev(`document.querySelector('button[title="Pause"],button[title="暂停"]').click()`);
   await pause(200);
@@ -89,7 +94,7 @@ try {
     const max = /max_volume: ([-\d.]+) dB/.exec(volume.stderr);
     assert(volume.status === 0 && max && Number(max[1]) > -40, 'Export final two seconds contain non-silent audio');
   }
-  await fs.writeFile(path.join(out, 'results.json'), JSON.stringify({ success: true, exe, input, checks, before, playing, exportReport }, null, 2));
+  await fs.writeFile(path.join(out, 'results.json'), JSON.stringify({ success: true, virtualAudioOutput, exe, input, checks, before, playing, exportReport }, null, 2));
   console.log(JSON.stringify({ success: true, out, checks, playing }));
 } finally {
   client?.close();

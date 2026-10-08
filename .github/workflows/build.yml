@@ -25,7 +25,7 @@ jobs:
           if ($installProcess.ExitCode -ne 0) { throw "Installer failed: $($installProcess.ExitCode)" }
           $testExe = Join-Path $testInstallPath '十一录屏.exe'
           if (!(Test-Path -LiteralPath $testExe)) { throw 'Installed app is missing' }
-          node scripts/smoke-audio-preview-installed.mjs --installed "--exe=$testExe"
+          node scripts/smoke-audio-preview-installed.mjs --installed --virtual-audio-output "--exe=$testExe"
           if ($LASTEXITCODE -ne 0) { throw 'Installed playback and export smoke failed' }
           $savedProjects = @(Get-ChildItem .tmp/audio-preview-installed -Recurse -Filter audio.recordly)
           if ($savedProjects.Count -eq 0) { throw 'Saved test project is missing' }
@@ -38,9 +38,14 @@ jobs:
             if (!(Test-Path -LiteralPath $project.FullName) -or (Get-FileHash -LiteralPath $project.FullName -Algorithm SHA256).Hash -ne $savedHashes[$project.FullName]) { throw 'Uninstall modified a saved test project' }
           }
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: shiyi-recorder-windows-preview
           path: |
             release/*.exe
             release/SHA256SUMS-windows.txt
+            .tmp/audio-preview-installed/**/playback-attempt.json
+            .tmp/audio-preview-installed/**/results.json
+            .tmp/audio-preview-installed/**/app.log
+          include-hidden-files: true
           if-no-files-found: error
