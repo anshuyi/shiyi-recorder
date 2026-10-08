@@ -6,6 +6,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,14 +18,18 @@ jobs:
       - run: npm run build:public:win -- --preview
       - run: node --test scripts/lib/public-windows-profile.test.mjs
       - name: Install and test without a development checkout runtime
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $installer = Get-ChildItem release/*-Setup.exe | Select-Object -First 1
           $testInstallPath = Join-Path $env:RUNNER_TEMP 'shiyi-install-test'
-          $installProcess = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$testInstallPath") -WindowStyle Hidden -PassThru -Wait
+          Write-Host 'Starting silent installation'
+          $installProcess = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$testInstallPath") -WindowStyle Hidden -PassThru
+          if (!$installProcess.WaitForExit(120000)) { Stop-Process -Id $installProcess.Id -Force; throw 'Installer process exceeded two minutes' }
           if ($installProcess.ExitCode -ne 0) { throw "Installer failed: $($installProcess.ExitCode)" }
           $testExe = Join-Path $testInstallPath '十一录屏.exe'
           if (!(Test-Path -LiteralPath $testExe)) { throw 'Installed app is missing' }
+          Write-Host 'Installation complete; starting decoded playback and MP4 export checks'
           node scripts/smoke-audio-preview-installed.mjs --installed --virtual-audio-output "--exe=$testExe"
           if ($LASTEXITCODE -ne 0) { throw 'Installed playback and export smoke failed' }
           $savedProjects = @(Get-ChildItem .tmp/audio-preview-installed -Recurse -Filter audio.recordly)
@@ -32,11 +37,14 @@ jobs:
           $savedHashes = @{}
           foreach ($project in $savedProjects) { $savedHashes[$project.FullName] = (Get-FileHash -LiteralPath $project.FullName -Algorithm SHA256).Hash }
           $uninstaller = Join-Path $testInstallPath 'Uninstall 十一录屏.exe'
-          $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList '/S' -WindowStyle Hidden -PassThru -Wait
+          Write-Host 'Playback/export complete; starting silent uninstall'
+          $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList '/S' -WindowStyle Hidden -PassThru
+          if (!$uninstallProcess.WaitForExit(60000)) { Stop-Process -Id $uninstallProcess.Id -Force; throw 'Uninstaller process exceeded one minute' }
           if ($uninstallProcess.ExitCode -ne 0) { throw 'Uninstaller failed' }
           foreach ($project in $savedProjects) {
             if (!(Test-Path -LiteralPath $project.FullName) -or (Get-FileHash -LiteralPath $project.FullName -Algorithm SHA256).Hash -ne $savedHashes[$project.FullName]) { throw 'Uninstall modified a saved test project' }
           }
+          Write-Host 'Installation, playback/export, and saved-project preservation checks complete'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
