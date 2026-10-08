@@ -1,0 +1,79 @@
+name: Published Windows installer verification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  installed-release:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node scripts/prepare-public-media.mjs
+      - name: Download, verify, install and test published installer
+        timeout-minutes: 6
+        shell: pwsh
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $fileName = "Shiyi-Recorder-$version-windows-x64-Setup.exe"
+          $baseUrl = "https://github.com/$env:RELEASE_REPOSITORY/releases/download/v$version"
+          $downloadPath = Join-Path $env:RUNNER_TEMP 'release-download'
+          New-Item -ItemType Directory -Force -Path $downloadPath | Out-Null
+          $installer = Join-Path $downloadPath $fileName
+          $checksums = Join-Path $downloadPath 'SHA256SUMS-windows.txt'
+          curl.exe -L --fail --retry 2 --max-time 180 --silent --show-error -o $installer "$baseUrl/$fileName"
+          if ($LASTEXITCODE -ne 0) { throw 'Published installer download failed' }
+          curl.exe -L --fail --max-time 60 --silent --show-error -o $checksums "$baseUrl/SHA256SUMS-windows.txt"
+          if ($LASTEXITCODE -ne 0) { throw 'Published checksums download failed' }
+          $expected = @(Get-Content $checksums | Where-Object { $_ -match ('^[0-9a-f]{64}  ' + [regex]::Escape($fileName) + '$') })
+          if ($expected.Count -ne 1) { throw 'Installer checksum entry missing or ambiguous' }
+          $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected[0].Substring(0,64)) { throw 'Published installer checksum mismatch' }
+          Write-Host "Published installer verified: $actual"
+          $testInstallPath = Join-Path $env:RUNNER_TEMP 'shiyi-release-install-test'
+          $installStarted = Get-Date
+          $installProcess = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$testInstallPath") -WindowStyle Hidden -PassThru
+          if (!$installProcess.WaitForExit(120000)) { throw 'Published installer exceeded two minutes' }
+          if ($installProcess.ExitCode -ne 0) {
+            Get-WinEvent -FilterHashtable @{LogName='Application';Id=1000,1001;StartTime=$installStarted} -ErrorAction SilentlyContinue | Select-Object -First 5 TimeCreated,Message | Format-List
+            throw "Published installer failed: $($installProcess.ExitCode)"
+          }
+          $testExe = Join-Path $testInstallPath '十一录屏.exe'
+          if (!(Test-Path -LiteralPath $testExe)) { throw 'Installed executable missing' }
+          node scripts/smoke-audio-preview-installed.mjs --installed --virtual-audio-output --readiness-regression "--exe=$testExe"
+          if ($LASTEXITCODE -ne 0) { throw 'Published installed audio/export smoke failed' }
+          $projects = @(Get-ChildItem .tmp/audio-preview-installed -Recurse -Filter audio.recordly)
+          if ($projects.Count -eq 0) { throw 'Saved test project missing' }
+          $hashes = @{}
+          foreach ($project in $projects) { $hashes[$project.FullName] = (Get-FileHash -LiteralPath $project.FullName -Algorithm SHA256).Hash }
+          $uninstaller = Join-Path $testInstallPath 'Uninstall 十一录屏.exe'
+          $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList '/S' -WindowStyle Hidden -PassThru
+          if (!$uninstallProcess.WaitForExit(60000)) { throw 'Uninstall exceeded one minute' }
+          if ($uninstallProcess.ExitCode -ne 0) { throw 'Uninstall failed' }
+          $uninstallDeadline = (Get-Date).AddSeconds(30)
+          while (Test-Path -LiteralPath $testInstallPath) {
+            if ((Get-Date) -gt $uninstallDeadline) { throw 'Uninstall cleanup incomplete' }
+            Start-Sleep -Milliseconds 250
+          }
+          foreach ($project in $projects) {
+            if (!(Test-Path -LiteralPath $project.FullName) -or (Get-FileHash -LiteralPath $project.FullName -Algorithm SHA256).Hash -ne $hashes[$project.FullName]) { throw 'Uninstall changed a saved project' }
+          }
+          Write-Host 'Published installer, audio/export and project preservation checks passed'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: published-windows-installer-verification
+          path: |
+            .tmp/audio-preview-installed/**/results.json
+            .tmp/audio-preview-installed/**/failure.json
+            .tmp/audio-preview-installed/**/playback-attempt.json
+            .tmp/audio-preview-installed/**/app.log
+          include-hidden-files: true
+          if-no-files-found: warn
